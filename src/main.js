@@ -44,16 +44,17 @@ const textureMap = {
   domain: textureLoader.load("/textures/room/denoised_domain.webp"),
 };
 
-Object.keys(textureMap).forEach((key) => {
-  textureMap[key].flipY = false;
-  textureMap[key].colorSpace = THREE.SRGBColorSpace;
+Object.values(textureMap).forEach(tex => {
+  tex.flipY = false;
+  tex.colorSpace = THREE.SRGBColorSpace;
 });
 
 const scene = new THREE.Scene();
 
 window.addEventListener("mousemove", (event) => {
-  pointer.x = (event.clientX / sizes.width) * 2 - 1;
-	pointer.y = -(event.clientY / sizes.height) * 2 + 1;
+  const rect = canvas.getBoundingClientRect();
+  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 });
 
 window.addEventListener("click", (event) => { ///// TODO
@@ -65,7 +66,7 @@ window.addEventListener("click", (event) => { ///// TODO
 });
 
 /* Load all textures into the scene */
-loader.load("/models/Room_Portfolio-v2.glb", (glb) => {
+loader.load("/models/Room_Portfolio-v3.glb", (glb) => {
   glb.scene.traverse((child) => {
     if(child.isMesh){
       if(child.name.includes("PC_Glass")){
@@ -92,18 +93,60 @@ loader.load("/models/Room_Portfolio-v2.glb", (glb) => {
         else if(child.name.includes("Domain")){
           matchedTexture = textureMap.domain;
         }
-        else if(!child.name.includes("Items_Merged")  || child.name.includes("Button")){
-          raycasterObjs.push(child); // add interactivity to some objects
-          child.userData.initialScale = new THREE.Vector3().copy(child.scale);
-          child.userData.initialRotation  = new THREE.Euler().copy(child.rotation);
-          child.userData.initialPosition = new THREE.Vector3().copy(child.position);
-        }
         child.material = new THREE.MeshBasicMaterial({
           map: matchedTexture,
         });
       }
+
       if(child.material.map){
         child.material.map.minFilter = THREE.LinearFilter;
+      }
+
+      const excluded = [
+        "Scene",
+        "Foundation_Merged",
+        "Items_Merged",
+        "PC_Glass",
+        "Paintings",
+        "Domain",
+        "PostIts"
+      ];
+
+      const isInteractable = !excluded.some(name =>
+        child.name.includes(name)
+      );
+
+      if(isInteractable){
+        const box = new THREE.Box3().setFromObject(child);
+        const size = new THREE.Vector3();
+        const center = new THREE.Vector3();
+
+        box.getSize(size);
+        box.getCenter(center);
+
+        const collider = new THREE.Mesh(
+          new THREE.BoxGeometry(
+            size.x * 0.6,
+            size.y * 0.6,
+            size.z * 0.6
+          ),
+          new THREE.MeshBasicMaterial({
+            visible: false
+          })
+        );
+
+        collider.position.copy(center);
+        collider.userData.visual = child;
+        if (child.name.includes("Button")){
+          collider.userData.isButton = true;
+        }
+
+        child.userData.initialScale = child.scale.clone();
+        child.userData.initialRotation = child.rotation.clone();
+        child.userData.initialPosition = child.position.clone();
+
+        raycasterObjs.push(collider);
+        scene.add(collider);
       } 
     }
   }); 
@@ -115,25 +158,25 @@ camera.position.set(12, 6, 16);
 
 const renderer = new THREE.WebGLRenderer({canvas: canvas, antialias: true});
 renderer.setSize(sizes.width, sizes.height);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));  
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace; 
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.minDistance = 5;
-controls.maxDistance = 30;
+controls.maxDistance = 22;
 
-controls.minPolarAngle = 0;
+controls.minPolarAngle = Math.PI / 8;
 controls.maxPolarAngle = Math.PI / 2;
-controls.minAzimuthAngle = 0;
-controls.maxAzimuthAngle = Math.PI / 2;
+controls.minAzimuthAngle = Math.PI / 8;
+controls.maxAzimuthAngle = Math.PI / 3;
 
 controls.enableDamping = true; 
 controls.dampingFactor = 0.05;
 controls.target.set(1, 2, 0);
+controls.enablePan = false;
 controls.update();
 
 window.addEventListener("resize", () => {
-  controls.update();
-
   sizes.width =  container.clientWidth;
   sizes.height = container.clientHeight;
 
@@ -149,53 +192,44 @@ function animate(object, isActive){
   gsap.killTweensOf(object.rotation);
   gsap.killTweensOf(object.position);
 
-  if(isActive){
-    if (object.name.includes("Chair")) {
+  const isChair = object.name.includes("Chair");
+  
+  if(isActive){ // Hover state
+    if(isChair){
       gsap.to(object.rotation, {
-        y: object.userData.initialRotation.y + Math.PI / 5,
-        duration: 0.5,
-        ease: "bounce.out(2)",
+        x: object.userData.initialRotation.x - Math.PI / 20,
+        //y: object.userData.initialRotation.y + Math.PI / 10,
+        z: object.userData.initialRotation.z - Math.PI / 20,
+        duration: 0.4,
+        ease: "power2.out",
       });
     }
+
     else{
-      if(object.name.includes("Button")){ // scale and hover
-        gsap.to(object.position, { 
-          y: object.userData.initialPosition.y + 0.2,
-          duration: 0.5,
-          ease: "bounce.out(1.8)",
-        });
-      }
-      gsap.to(object.scale, {
-        x: object.userData.initialScale.x * 1.2, 
-        y: object.userData.initialScale.y * 1.2, 
-        z: object.userData.initialScale.z * 1.2, 
-        duration: 0.5,
-        ease: "bounce.out(1.8)",
+      var up_amount = object.name.includes("Button")? 0.2 : 0.1;
+      gsap.to(object.position, {
+        y: object.userData.initialPosition.y + up_amount,
+        duration: 0.25,
+        ease: "power2.out",
       });
     }
   }
-  else{
-    if(object.name.includes("Chair")) {
+
+  else{ // Reset / Non-hover state
+    if(isChair){
       gsap.to(object.rotation, {
+        x: object.userData.initialRotation.x,
         y: object.userData.initialRotation.y,
+        z: object.userData.initialRotation.z,
         duration: 0.3,
-        ease: "bounce.out(1.8)",
+        ease: "power2.out",
       });
     }
     else{
-      if(object.name.includes("Button")){
-        gsap.to(object.position, {
-          y: object.userData.initialPosition.y,
-          duration: 0.3,
-          ease: "bounce.out(1.8)",
-        });
-      } 
-      gsap.to(object.scale, {
-        x: object.userData.initialScale.x, 
-        y: object.userData.initialScale.y, 
-        z: object.userData.initialScale.z, 
-        duration: 0.3,
-        ease: "bounce.out(1.8)",
+      gsap.to(object.position, {
+        y: object.userData.initialPosition.y,
+        duration: 0.2,
+        ease: "power2.out",
       });
     }
   }
@@ -203,39 +237,36 @@ function animate(object, isActive){
 
 const render = () => {
   controls.update();
-  raycaster.setFromCamera( pointer, camera );
+  raycaster.setFromCamera(pointer, camera);
   currentIntersects = raycaster.intersectObjects(raycasterObjs);
 
   if(currentIntersects.length > 0){
-    let currIntersectObj = currentIntersects[0].object;
-
-    if(!currIntersectObj.name.includes("Items_Merged")){
-      if(currIntersectObj !== currActiveObject){
-        if(currActiveObject){ // on another object, move first one down
-          animate(currActiveObject, false);
-        }
-        animate(currIntersectObj, true);
-        currActiveObject = currIntersectObj;
+    const hit = currentIntersects[0].object;
+    const obj = hit.userData.visual;
+    if(obj !== currActiveObject){
+      if(currActiveObject){
+        animate(currActiveObject, false);
       }
+      animate(obj, true);
+      currActiveObject = obj;
     }
-
-    if(currIntersectObj.name.includes("Button")){
+    if (hit.userData.isButton) {
       document.body.style.cursor = "pointer";
-    }
-    else{
+    } 
+    else {
       document.body.style.cursor = "default";
     }
-  }
+  } 
   else{
-    if(currActiveObject){ // on another object, move first one down
+    if(currActiveObject){
       animate(currActiveObject, false);
       currActiveObject = null;
     }
-      document.body.style.cursor = "default";
-    }
+    document.body.style.cursor = "default";
+  }
   renderer.render(scene, camera);
-  window.requestAnimationFrame(render);
-}
+  requestAnimationFrame(render);
+};
 
 render();
 
@@ -250,13 +281,16 @@ function updateButtonVisibility() {
   if (isMobileLayout()) {
     if (window.scrollY > 200) {
       backToTop.classList.add('show');
-    } else {
+    } 
+    else{
       backToTop.classList.remove('show');
     }
-  } else {
+  } 
+  else{
     if (textSection.scrollTop > 200) {
       backToTop.classList.add('show');
-    } else {
+    } 
+    else{
       backToTop.classList.remove('show');
     }
   }
@@ -266,7 +300,8 @@ function updateButtonVisibility() {
 backToTop.addEventListener('click', () => {
   if (isMobileLayout()) {
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  } else {
+  } 
+  else{
     textSection.scrollTo({ top: 0, behavior: 'smooth' });
   }
 });

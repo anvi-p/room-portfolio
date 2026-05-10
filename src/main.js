@@ -5,8 +5,8 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import gsap from "gsap";
 
-const canvas = document.querySelector("#experience-canvas");
-const container = document.getElementById('experience');
+const canvas = document.querySelector("#mesh-canvas");
+const container = document.getElementById('mesh-container');
 
 const sizes = {
   width: container.clientWidth,
@@ -18,7 +18,7 @@ let currentIntersects = [];
 let currActiveObject = null;
 
 const raycaster = new THREE.Raycaster();
-const pointer = new THREE.Vector2();
+const pointer = new THREE.Vector2(-10, -10);
 
 const textureLoader = new THREE.TextureLoader();
 const loader = new GLTFLoader();
@@ -57,12 +57,25 @@ window.addEventListener("mousemove", (event) => {
   pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 });
 
-window.addEventListener("click", (event) => { ///// TODO
-  if(currentIntersects.length > 0){
-    const object = currentIntersects[0].object;
+window.addEventListener("click", () => {
+  // We use the intersects from the raycaster (updated in render loop)
+  if (currentIntersects.length > 0) {
+    const hit = currentIntersects[0].object;
+    
+    // Check if the object hit has a sectionTarget
+    if (hit.userData.isButton && hit.userData.sectionTarget) {
+      const targetClass = hit.userData.sectionTarget;
+      const section = document.querySelector(`.${targetClass}`);
+
+      if (section) {
+        history.pushState(null, null, `#${targetClass}`);
+        section.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start'
+        });
+      }
+    }
   }
-  pointer.x = (event.clientX / sizes.width) * 2 - 1;
-	pointer.y = -(event.clientY / sizes.height) * 2 + 1;
 });
 
 /* Load all textures into the scene */
@@ -139,11 +152,16 @@ loader.load("/models/Room_Portfolio-v3.glb", (glb) => {
         collider.userData.visual = child;
         if (child.name.includes("Button")){
           collider.userData.isButton = true;
+          if (child.name.includes("About")) collider.userData.sectionTarget = "about";
+          else if (child.name.includes("Experience")) collider.userData.sectionTarget = "experience";
+          else if (child.name.includes("Education")) collider.userData.sectionTarget = "education";
+          else if (child.name.includes("Projects")) collider.userData.sectionTarget = "projects";
         }
 
         child.userData.initialScale = child.scale.clone();
         child.userData.initialRotation = child.rotation.clone();
         child.userData.initialPosition = child.position.clone();
+
 
         raycasterObjs.push(collider);
         scene.add(collider);
@@ -198,7 +216,6 @@ function animate(object, isActive){
     if(isChair){
       gsap.to(object.rotation, {
         x: object.userData.initialRotation.x - Math.PI / 20,
-        //y: object.userData.initialRotation.y + Math.PI / 10,
         z: object.userData.initialRotation.z - Math.PI / 20,
         duration: 0.4,
         ease: "power2.out",
@@ -313,3 +330,19 @@ window.addEventListener('resize', updateButtonVisibility);
 
 // Initial check
 updateButtonVisibility();
+
+window.addEventListener('load', () => {
+  const targetClass = window.location.hash.replace('#', '');
+  if (targetClass) {
+    const section = document.querySelector(`.${targetClass}`);
+    if (section) {
+      setTimeout(() => { // Small timeout to ensure layout is ready
+        history.pushState(null, null, `#${targetClass}`);
+        section.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start'
+        });
+      }, 500);
+    }
+  }
+});
